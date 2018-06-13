@@ -1485,6 +1485,24 @@ xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
 
 ## XML的验证和调试
 
+### 使用SciTE验证XML
+
+按下F5用于验证当前打开的XML文件。下图展示了SciTE打开了一个包含错误的XML文件。这个XML文件和先前的文件看起来差不多，只不过多了一个
+事件处理器`OnInvalid`。MSV发现了这个事件并不存在，并且它列举了可以出现的元素列表。
+
+![SciTE工具截图](lua/images/SciTE.png)
+
+该工具是基于免费的XML类库Xerces创建的。MSV是基于BSD开源协议的。你可以在SciTE安装目录下找到它的完整协议。这些协议是完全开源，并
+且允许你使用它做任何你想做的东西，只需要保留它原有的协议。
+
+---
+
+**NOTE**: 你必须要安装Java以使用这个工具。你可以在网站 http://www.oracle.com/technetwork/java/javase/downloads/index.html
+进行下载。
+
+---
+
+
 
 
 
