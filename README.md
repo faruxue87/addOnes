@@ -1383,7 +1383,7 @@ DKP拍卖插件至此已经完成了。这是一个典型的DKP拍卖插件，�
 
 使用lua和xml二者都有他们的优势和不足之处。在这一章我们的重点将放在xml上面，但是有一些功能依旧只能用lua去实现。所以在这里你同样也
 会接触到一些类似于CreateFrame这样创建图形框的方法。使用XML最大的好处就是使你将UI代码和游戏逻辑代码进行解耦，这可以让你在不修改
-任何lua代码的情况下修改插件的外观。
+任何lua代码的情况下修改插件的样式。
 
 lua的优势在于他可以在执行脚本的同时动态生成框。你将会看到lua和xml结合在一起使用已最大限度发挥他们的特长。
 
@@ -1485,6 +1485,14 @@ xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
 
 ## XML的验证和调试
 
+如果你使用功能比较强大的IDEs例如WoW AddOn Studio，他讲提供了比较完整的XML校验。
+但是如果你使用的工具是SciTE，你是有一些基本的XML高亮提示和代码折叠功能。为了增加一些功能呢，我在SciTE当中添加了命令行工具
+MSV`(Sun Multi-Schema Validator)`。这个程序可以通过XML的Schema对XML进行校验。Schema定义了一个XML文件当中的元素，
+属性以及可选值。Schema文件也是一个XML文件。
+
+魔兽世界UI的XMLSchema存放在Interface\FrameXML\UI.xsd。如果你不是很熟悉XML，你将会觉得这个文件很有意思。如果你对XML比较熟
+悉，你可能会使用自己的XML编辑器和这个Schema文件进行操作。
+
 ### 使用SciTE验证XML
 
 按下F5用于验证当前打开的XML文件。下图展示了SciTE打开了一个包含错误的XML文件。这个XML文件和先前的文件看起来差不多，只不过多了一个
@@ -1502,11 +1510,566 @@ xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
 
 ---
 
+### 调试XML
+
+你在创建XML文件的时候肯定会产生一些拼写或者其他的错误。所以你应该了解魔兽世界在解析一个不正确的XML文件时会发生什么。最简单的错误
+和XML本身没有关系，而是由XML当中嵌套的Lua代码有关。如果你的脚本有语法错误，游戏将会在加载XML文件时弹出一个错误提示框，然后忽略
+相关的XML元素。
+
+XML的错误，例如未知的属性或者元素，不会在游戏中产生错误提示。相应的属性或者元素将被忽略。
+
+XML的语法错误，例如少了一个标签，也不会产生错误消息，但是整个XML将被忽略。无论如何，是有办法获取到XML文件当中错误的有关信息的。
+
+函数`FrameXML_Debug`可以在游戏加载XML文件时生成一个非常详细的日志。执行以下命令在本次回话中开启调试：
+
+`run FrameXML_Debug(1)`
+
+在重新加载你的插件之后，将会在以下目录生成一个日志文件`World of Warcraft\Logs\FrameXML.log。`其中包含所有的游戏所加载的
+所有XML的详细信息，包括暴雪提供的XML文件。所以你应该在这个文件当中查找有关你自己创建的XML的信息。例如，你尝试将一个不存在的元素
+OnInvalid添加到事件处理器当中，你将会看到以下的日志：
+
+---
+
+Loading add-on XMLTests  
+** loading table of contents Interface\AddOns\XMLTests\XMLTests.toc  
+++ loading file Interface\AddOns\XMLTests\Test.xml  
+-- Creating Frame MyTestFrame
+Frame MyTestFrame: Unknown script element OnInvalid
+
+---
+
+然而，当你的XML文件当中包含语法错误的时候，只有如下一行日志
+
+---
+
+couldn't parse XML in Interface\AddOns\XMLTests\Test.xml  
+
+---
+
+这个时候你就需要检查XML当中的语法错误了。
+
+检查插件的XML日志总是一个不错的做法，因为它包含了错误日志以外有价值的启动加载信息，可以帮助你发现可能的错误。
+
+## UI框的基础
+
+这个段落主要讲解UI框的基础，和如何将其展示在你的屏幕上。UI框使用户图形界面最基本的元素，一个UI框可以包含其他用户图形界面当中的
+元素。一个UI框当中包含着的另一个UI框或者一个其他的组件(用户界面元素例如按钮)，都称之为其子元素。包含其他元素的UI框称之为父元素。
+UI框可以包含任意数量的子元素，但是最多只能存在一个父元素。更改UI框的属性同样作用于其子元素，例如将父元素隐藏，则其所有子元素都
+将被隐藏。设置透明度或者对父元素进行拉伸同样作用于其子元素。
+
+我们这里要创建我们扑克插件的第一个部分，创建一个UI框，里面的内容是一个牌桌的列表，玩家可以通过这个列表加入到任何一桌德州扑克桌
+进行游戏。首先创建一个新的文件夹和一个TOC文件，然后将localization.en.lua，TableBrowser.xml，TableBrowser.lua添加到TOC
+文件中。TOC文件中定义的顺序就是这些文件被加载的顺序。正确的TOC文件如所示，当然你可以添加一些例如插件名称等额外的属性:
+
+```
+## Interface: 30100
+localization.en.lua
+TableBrowser.xml
+TableBrowser.lua
+```
+
+我们首先需要加载的是本地化文件，在这个文件当中我们将要存放所有使用到的字符串。下一个我们希望被加载的文件是XML文件，我们希望UI框
+在执行Lua脚本之前进行创建。
+
+插件的名称可以随意指定，在这里我称它为Texas_Hold'em。接下来将以下代码添加到XML文件当中：
+
+```xml
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+    <Frame name="Poker_TableBrowser"></Frame>
+</Ui>
+```
+
+以上代码将创建一个名为Poker_TableBrowser的UI框，在本章剩余部分我们将对这个UI框进行扩展。
 
 
+### 使之可见
 
+我们需要的UI框是一个在屏幕当中可见的UI框。在它展示在屏幕当中之前，我们需要给它设置一些属性。我们需要提供至少一个*点*供这个UI框进
+行定位。如果我们只提供了一个点，那么我们必须为其指定一个尺寸。最终我们还需要在UI框当中放置一些内容使我们最终在屏幕上可以看到一些
+东西。
 
- 
+#### UIParent
+
+这是一个游戏世界定义的特殊的框，它是所有其他框的父元素。一个UI框并不需要是UIParent框的直接子元素，只需要其任意一个父元素是UIParent
+的子元素即可。这可以让你通过修改一个框的属性，从而改变所有框的属性。举个例子Alt+Z可用于隐藏整个UI，他调用了一个方法UIParent:Hide()。
+如果你的框不是UIParent的子元素，Alt+Z将隐藏不了你的框。
+
+我们将添加一个属性`parent = "UIParent"`到我们`<Frame>`元素上。更新后的的标签如下：
+
+```xml
+    <Frame name="Poker_TableBrowser" parent="UIParent"></Frame>
+```
+
+你可以通过Lua函数重新设置一个框的父元素frame:SetParent(*parent*)，也可以在使用Lua创建框时指定父元素
+CreateFrame(*type*,*name*,*parent*)
+
+#### 锚点
+
+锚点定义了你的UI框相对于游戏UI的位置。你的UI框可以拥有多个锚点，但是我们从只定义一个锚点开始。`<Anchor>`元素必须放在`<Frame>`
+元素里的`<Anchors>`元素当中。你将在原先的Frame元素当中插入以下代码：
+
+```xml
+    <Frame name="Poker_TableBrowser" parent="UIParent">
+        <Anchors>
+            <Anchor point="LEFT" relativePoint="CENTER">
+                <Offset>
+                    <AbsDimension x="200" y="0"/>
+                </Offset>
+            </Anchor>
+        </Anchors>
+    </Frame>
+```
+
+以上这段代码使你的UI框基于UIParent进行定位。Offset元素定义了父子框之间的相对位置，一个正的x值意为将子框基于锚点向右移动若干个
+像素，负值向左；一个正的Y值意为将子框基于锚点向上移动，负值向下。除了使用绝对值元素`<AbsDimension/>`进行定位之外，还可以使用
+比例参数`<RelDimension/>`进行移动，x与y的取值在0到1之间，意为移动占屏幕的百分比长度。Offset元素是可选的，默认值x,y都为0。
+锚点的relativePoint属性同样也是可选的，默认值为为point属性的值。所以我们可以仅仅通过Anchor元素的point属性对UI框进行定位。
+
+我们的UI框将基于父框进行锚点。如果一个UI框没有父元素，那么他将基于整个屏幕进行锚点。你同样可以在`<Anchor>`元素中指定另一个UI框，
+从而将基于父框锚点改为基于指定的UI框进行锚点。
+
+#### 定位点
+
+在下图中第一张图中列举了所有可用的锚点。下图第二张图中展示了子框左下角的锚点，基于父框底部的锚点进行定位，进行向下10像素(Y:-10)和
+向右15像素的偏移(X:15)
+
+![Point1](lua/images/Point1.png)
+![Point2](lua/images/Point2.png)
+
+同样可以通过Lua脚本获取，设置，删除锚点。frame:SetPoint(point,relativeTo,relativePoint,x,y)方法创建一个新的锚点。除了
+point之外的参数都是可选的。默认的relativeTo指向其父元素，默认relativePoint等同于第一个参数的值，x，y的默认值为0。relativeTo
+可以是一个frame对象，也可以是一个frame的名称。当省略relativeTo，relativePoint参数时，可以将x，y作为第二第三个参数进行传递。
+
+frame:GetPoint(n)返回这个UI框第n个锚点。返回值和SetPoint方法的入参是一致的。
+
+你可以使用frame:ClearAllPoints()方法移除框上的锚点。这个框在屏幕上显示的位置在调用这个方法之后不会发生变化，直到你对这个框设置
+了一个新的锚点。记住在设置新的锚点之前，一定要使用ClearAllPoints对旧的锚点进行清除，否则会产生不可预知的情形。在这个章节晚些时候
+将会介绍多个一个框当中多个锚点对于这个框位置以及尺寸大小的影响。
+
+目前在加载你的XML文件之后依旧在屏幕上看不见什么新的东西。因为目前我们的框里面没有内容。不过没有关系我们可以使用小地图进行锚点的实验。
+下面这两行代码将小地图的位置移动了。
+
+```lua
+MinimapCluster:ClearAllPoints()
+MinimapCluster:SetPoint("CENTER",100,-50)
+```
+
+这样你就能看到锚点的效果了，别忘了在设置新的锚点之前清除旧的锚点。
+
+---
+
+**Caution** 在调用SetPoint方法时不可以只设置一个偏移量。若你如此做将忽略此次设置。
+
+---
+
+#### 尺寸
+
+当你定义一个尺寸或者偏移量时，可以有以下两种方式：使用绝对值或者相对值。相对值是相对你整个屏幕的百分比。所以一个具有相对宽高0.5的
+框将占据屏幕的四分之一。绝对值的单位是像素，但是最终显示在屏幕上的像素值取决于UI比例的设置。游戏窗口的高度为768像素除以一个UI缩放
+比例，你可以通过`UIParent:GetScale()`函数获取这个比例。例如我设置UI缩放比例为0.75，那么我游戏窗口的高度就是1024像素。宽度
+取决于屏幕的长宽比。例如我的显示器长宽比为16：10，所以我游戏窗口的宽度就是1024*1.6=1638.4像素。
+
+所以当我们定义尺寸或者偏移量时，我们总是定义一个虚拟分辨率去映射实际的屏幕像素。这样做有一个好处就是尺寸和偏移量不依赖于显示器分辨
+率，尤其当你使用窗口模式进行游戏时，拉伸窗口大小不会引起框的重新定位。
+
+我们可以用`<Size>`元素设置UI框的大小。我们选择牌桌界面的大小设在384*350比较合适，384是默认聊天框的宽度。将以下代码添加到
+TableBrowser.xml文件`<Frame>`元素当中。添加到一个XML目标元素当中是指将元素放在目标元素起始和终止标签里：
+
+```xml
+<Size>
+    <Absdimension x="384" y="350"/>
+</Size>
+```
+
+再次重申，你可以使用相对值`<RelDimension>`以指定宽和高。如果你想通过Lua脚本设置，可以使用框的方法frame:SetWidth(width)和
+frame:SetHeight(height)。同样你可以通过GetWidth和GetHeight获取宽度和高度。现在我们的框当中如果有一些内容的话，那么它将
+显示在我们的屏幕上。让我们在这个UI框当中添加一个简单的边框和背景。
+
+#### 背景框
+
+背景框是我们UI框当中边框和背景样式的组合。将`<BackDrop>`元素添加到`<Frame>`元素当中：
+
+```xml
+<BackDrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" tile="true" 
+    edgeFile="Interface\DialogFrame\UI-DialogBox-Border">
+    <TileSize>
+        <AbsValue val="32"/>
+    </TileSize>
+    <EdgeSize>
+        <AbsValue val="32"/>
+    </EdgeSize>
+    <BackgroundInsets>
+        <AbsInset left="11" right="12" top="12" bottom="11"/>
+    </BackgroundInsets>
+</BackDrop>
+```
+
+让我们了解一下背景框当中的元素以及属性。第一个属性就是bgFile，背景框的背景图片资源的路径就通过这个属性进行指定。如果tile属性值
+为true，背景图将重复出现以填充满整个背景框。设置tile为false将拉伸背景图片以填充背景框。
+
+edgeFile属性用于指定边框的样式。下图展示了我们示例当中使用到的样式。图片包含了边框的边框的每个部分
+![Border](lua/images/Border.png)
+*Interface\DialogFrame\UI-DialogBox-Border*
+
+`<TileSize>`元素定义了框所使用的样式文件的宽，框的高度永远和样式文件保持一致。`<EdgeSize>`元素定义了样式文件中用于使用作为
+边框的宽度。边框的四条边如上图左半边部分，拐角如上图右半边部分。
+
+最后一个元素是`<BackgroundInsets>`，像是定义了背景的内间距TODO
+
+大部分插件只需要复制粘贴暴雪UI当中自带的背景框元素。这可以确保你插件的样式看起来像是原生的，并且省掉了设计背景框的工作。
+
+你现在可以加载这个包含XML文件的插件了。你将会在你的屏幕右侧看到一个漂亮的UI框。但是我们并不希望它在默认情况下就展示出来，我们晚点
+创建一个斜杠命令和一个小地图按钮用于显示这个框。添加一个`hidden="true"`的属性使这个框在默认情况下隐藏。你可以通过调用
+Poker_TableBrowser:Show()方法显示这个框。
+
+#### 多个定位点
+
+你可以为一个UI框定义多个定位点。这个UI框将占据多个定位点组成的这部分空间。这将覆盖size属性。载入扑克插件之后首先让我们看到这个框，
+然后调用以下函数
+
+```lua
+Poker_TableBrowser:ClearAllPoints()
+Poker_TableBrowser:SetPoint("TOP")
+Poker_TableBrowser:SetPoint("BOTTOM")
+
+```
+
+你将会发现这个框被移至了屏幕中央，并且它的高度被拉伸至占满整个窗口。不过它的宽度没有变化。让我继续尝试以下的代码：
+
+```lua
+Poker_TableBrowser:ClearAllPoints()
+Poker_TableBrowser:SetPoint("BOTTOMLEFT",UIParent,"LEFT")
+Poker_TableBrowser:SetPoint("TOPRIGHT",UIParent,"TOP")
+
+```
+此时这个框将占据屏幕左上角四分之一的区域。`<Size>`所指定的宽高都将被忽略。
+
+如果你希望将一个框填充满另一个框，你可以使用左上和右下的定位点进行定位，或者设置框的setAllPoints属性。如果将setAllPoints
+设置为true，它将直接填充满其父元素。frame:SetAllPoints(*otherFrame*)使用该方法可以依据任意一个框进行锚点定位。
+
+### 层级和样式
+
+我们现在拥有了一个可见的包含背景的UI框，但它目前仅仅是个空的框。下一步你将了解到什么是布局以及如何添加一些艺术品到这个框当中。
+
+#### 框的优先级
+
+frameStrata属性定义了框的展示顺序。一个框拥有更高的优先级将展示在其他框的之前。如果你没有定义框的优先级，则它继承父框的优先级。
+下面的列表展示了框优先级的可选值，优先值由高到低：
+
+* TOOLTIP
+* FULLSCREEN_DIALOG
+* FULLSCREEN
+* DIALOG
+* HIGH
+* MEDIUM
+* LOW
+* BACKGROUND
+
+我们创建的框应该使用DIALOG级别。使用该级别意为将我们的框展示在非全屏显示的UI元素之前。默认UI让中的对话框也是用的DIALOG级别，还有
+游戏菜单选项。你可以用过Lua方法frame:SetFrameStrata(*strata*)来设置UI框的优先级。
+
+#### 层级
+
+一个层级可以包含一些样式或者文本。层级的高低决定了一个可视元素在另一个可视元素之前还是之后。下面一个示例使用层级和样式添加一个标题
+到我们的UI框中。将一下元素添加到`<Frame>`元素当中。
+
+```xml
+
+<Layers>
+    <Layer level="ARTWORK">
+        <Texture name="$parentTitle" file="Interface\DialogFrame\UI-DialogBox-Header">
+            <Size>
+                <AbsDimension x="375" y="64"/>
+            </Size>
+            <Anchors>
+                <Anchor point="TOP">
+                    <Offset>
+                        <AbsDimension x="0" y="12"/>
+                    </Offset>
+                </Anchor>
+            </Anchors>
+        </Texture>
+        <FontString inherits="GameFontNormal" text="POKER_BROWSER_TITLE">
+            <Anchors>
+                <Anchor point="TOP" relativeTo="$parentTitle">
+                    <Offset>
+                        <AbsDimension x="0" y="-14"/>
+                    </Offset>
+                </Anchor>
+            </Anchors>
+        </FontString>
+    </Layer>
+</Layers>
+```
+
+元素`<Layers>`称作其他层级的容器。一个`<Layer>`包含样式`<Texture>`和文本元素`<FontString>`。`<Layer>`元素唯一的属性就是
+level。下面的列表中列举出层级可选的优先级，由高到低
+
+* HIGHLIGHT
+* OVERLAY
+* ARTWORK(default value)
+* BORDER
+* BACKGROUND
+
+HIGHLIGHT级别比较特殊，只有当鼠标移动至该元素上时，它才会显示出来。你可以利用它做一些花式特效。
+我们示例当中的层级包含两个元素：样式和文本。让我们先自己研究一下样式。
+
+#### 样式
+
+层级当中的样式和UI框中的样式是类似的，需要按顺序定义锚点和尺寸进行显示。样式的名称为$*parent*Title，其中$*parent*将被父元素
+的名称所替代。所以这个样式的名称为Poker_TableBrowserTitle。给样式设置一个引用可以使得Lua脚本当中的全局变量直接访问它。file
+属性设置了将被展示的样式资源文件。在此重申所有可选的元素和属性都列举在附录A当中。
+
+#### 字体
+
+`<FontString>`元素同样可以拥有一个名字，但是这里我们并不需要给它设置名称，因为我们不会再后面修改它。可是上一个样式元素，尽管我们
+也不准备修改它的，我们还是给它起了个名字$*parentTitle*，是给字体锚点元素当中的*relativeTo*使用的。这允许我们将文本根据背景进行
+定位，从而展示在正确的位置上。在XML当中基于一个没有名称的框进行定位是非法的，不过使用Lua方法SetPoint可以使用框的引用代替它的名称
+
+`inherits`属性告诉游戏使用字体*字体对象*GameFontNormal。一个字体对象定义了文本的一些属性，例如字体大小，颜色，字体。你可以在
+文件FrameXML\Fonts.xml当中查找默认的字体。尽管不是很常见，你还是可以自定义字体对象。附录A提供了完整的文档。
+
+注意这个元素不需要指定尺寸，文本将使用自适应的尺寸。可是你也可以设置一个尺寸以限制它的大小。如果文本超过了宽，将会换行显示，如果超过
+了高则会被截断。
+
+你可能会好奇为什么text属性会被设置为POKER_BROWSER_TITLE。游戏加载这个属性时先判断他是否是一个全局变量，如果是的话则用全局变量
+的值进行替换，否则就用这个原始的文本。
+
+当这个XML文件重新被加载，标题区域将会显示出POKER_BROWSER_TITLE。我们更换一个更恰当的标题，只需要在localization.en.lua脚本
+中添加如下一行代码：
+
+```lua
+POKER_BROWSER_TITLE = "Texas Hold'em Table Brouser"
+```
+
+我们下一个任务是使这个框可以进行移动。
+
+### 可移动的UI框
+
+我们可以在`<Frame>`元素中添加属性`movable="true"`使之可以移动。我们同样需要使之可以接受到鼠标相关事件。你可能发现现在鼠标的点击
+可以穿过这个框。我们将设置属性`enableMouse="true"`使这个UI框可以接受到鼠标的点击。
+
+事件处理器OnDragStart和OnDragEnd可以在你拖动UI框的时候被触发。在我们使用这些处理器之前，我们需要告诉这个框哪一个鼠标按键用于
+进行拖拽，需要通过调用方法frame:RegisterForDrag(*button*)进行设置。*button*参数可以为LeftButton，MiddleButton，
+RightButton，MouseButton4，MouseButton5。最好在OnLoad事件处理器当中调用这个方法。
+
+在OnDragStart事件处理器当中，我们将调用方法frame:StartMoving()使该UI框跟随鼠标的焦点。当用户释放鼠标按键的时候，我们需要调用
+方法frame:StopMovingOrSizing()。
+
+将下面这个`<Scripts>`元素添加到我们UI框元素当中使之可以被拖拽：
+
+```xml
+<Scripts>
+    <OnLoad>
+        self:RegisterForDrag("LeftButton")
+    </OnLoad>
+    <OnDragStart>
+        self:StartMoving()
+    </OnDragStart>
+    <OnDragStop>
+        self:StopMovingOrSizing()
+    </OnDragStop>
+</Scripts>
+```
+
+你将会发现我们的UI框可以被拖拽到屏幕之外。这显然不是我们想要的结果。我们可以在框元素中添加属性clumpedToScreen="true"来解决这个
+问题。
+
+还有一个问题就是当插件重新加载之后，它并没有存下之前UI框所在的位置。我们可以通过方法frame:SetUserPlaced(*userPlaced*)用于
+存储位置信息。存储的位置信息将在下一次创建UI框时被启用。请注意存储的位置信息会覆盖XML当中所定义的锚点信息。将下面的代码添加到
+OnLoad事件处理器当中：
+
+```
+self:SetUserPlaced(1)
+```
+
+我们现在有了一个看起来还不错的框。让我们添加一些内容。
+
+## 继承
+
+继承的含义是一个UI框可以从一个*模板*当中派生或者技能元素和属性。可一个普通的UI框类似，模板也是定义在XML文件当中，但是它有一个特殊
+的属性 virtual="true"。因此一个模板在屏幕中是不可见的，并且在Lua脚本中也没有对这个模板的直接引用。当你根据一个模板创建一个UI框
+时，创建出的UI框将从模板当中复制所有的内容。当然U创建出的UI框可以新增或者复写模板当中的一些元素以及属性。属性
+inherits="templateName"用于告诉游戏你希望根据名称为templateName的模板创建一个UI框。当使用Lua脚本创建UI框时，我们可以将
+模板名称作为第四个参数传入CreateFrame(*type*, *name*, *parent*, *template*)函数中。通过Lua无法创建模板本身。
+
+继承的机制允许我们定义一些基本的UI框作为模板。所有其他类似的框从这个模板当中继承元素和属性。最明显的优点就是我们不需要重复编写一些
+元素和属性了。如果你希望修改一些全局的基础的UI元素，只需要在模板当中进行修改即可，不需要修改每一个XML文件。这是一个魔兽世界UI提供
+的一个非常强大的特性。
+
+魔兽世界UI当中的继承机制是允许多继承的，即同时继承多个模板。只需要将多个模板名称用逗号隔开，设置在inherits属性当中：
+inherits="*template1*,*template2*"。渲染UI是会先拷贝template1当中的内容，再去拷贝template2当中的内容。后制定的模板当中
+的元素属性会覆盖之前指定的模板。多继承在实际运用当中并不常使用，单继承足以应对我们大部分使用场景。
+
+让我们继续完善我们的插件。我们将添加一些按钮元素。
+
+### 按钮类型的UI框
+
+按钮框可以用于响应用户鼠标点击事件。它提供了一个OnClick事件处理器，可以在用户点击鼠标的时候触发调用。按钮同样可以拥有样式以及文本，
+以及文本所使用的字体。样式以及字体可以随着按钮的状态而改变。游戏提供了4中按钮的样式:默认的样式字体组合样式，以及当鼠标移入后的样式，
+鼠标按下后的样式，以及被禁用的样式。禁用状态的按钮无法被点击。
+
+### 在XML当中定义按钮
+
+按钮框可以拥有普通UI框所拥有的所有的元素和属性。所以设置按钮的尺寸和位置同样使用`<Anchors>`和`<Size>`元素。下面的XML代码定义了
+一个标准的按钮
+
+```xml
+
+<Button name="Poker_Button">
+    <ButtonText>
+        <Anchors>
+            <Anchor point="CENTER">
+                <Offset>
+                    <Absdimension x="0" y="1"/>
+                </Offset>
+            </Anchor>
+        </Anchors>
+    </ButtonText>
+    <NormalFont style="GameFontNormal"/>
+    <HighlightFont style="GameFontHighlight"/>
+    <DisabledFont style="GameFontDisable"/>
+    <NormalTexture inherits="UIPanelButtonUpTexture"/>
+    <PushedTexture inherits="UIPanelButtonDownTexture"/>
+    <DisabledTexture inherits="UIPanelButtonDisabledTexture"/>
+    <HighlightTexture inherits="UIPanelButtonHighlightTexture"/>
+</Button>
+
+```
+
+这里没有定义尺寸以及锚点。如果你希望测试这个按钮，需要自行添加。按钮当中的文本定义在`<ButtonText>`元素当中，在此示例中居中显示。
+`<NormalFont>`、`<HighlightFont>`、`<DisabledFont>`定义了按钮3种状态下文本的字体。另外四个`<XTextture>`元素定义了按
+钮在不同状态下的样式。
+
+有意思的是这里的样式都是用了继承的属性。继承属性的值是一个模板，从这个模板当中拷贝所有的元素和属性。所以我们来看一下模板当中的代码
+是什么样的。下面的代码展示了UIPanelButtonUpTexture模板的代码，可以在Interface/FrameXML/UIPanelTemplates.xml当中找到。
+
+```xml
+<Texture name="UIPanelButtonUpTexture" file="Interface\Button\UI-Panel-Button-Up" virtual="true">
+    <TexCoords left="0" right="0.625" top="0" bottom="0.6875"/>
+</Texture>
+```
+
+这个样式使用了virtual="true"的属性，所以它是一个模板而不是一个具体的样式。全局变量UIPanelButtonUpTexture并没有被任何一个UI
+框直接引用。`<TexCoords>`元素可以用于修改一个样式，你将会在第八章中当我们编写客户端部分的时候学习更多有关于样式的内容。
+
+### 使用一个按钮模板
+
+每当你需要创建一个按钮的时候，当然你可以复制粘贴一遍上述按钮的代码。但是如果你需要修改这些按钮的样式呢？你需要对所有的复制粘贴的代码
+进行修改。复制粘贴代码将增加代码的重复率，我们应该避免这种行为。你的XML将在你使用模板之后变得更加简洁。
+
+所以你可以将我们刚刚定义的按钮转换成一个模板，只需要添加virtual="true"属性。每当在我们德州扑克插件中需要创建一个按钮时，我们就可
+以使用inherits="Poker_Button"引用我们这个模板。甚至你连这些都不需要做，因为暴雪已经提供了类似的模板。使用暴雪提供的模板有一个
+好处就是假如有一天暴雪更新了它原生按钮的样式，你的插件可以直接获取更新之后的样式。但这样做也可能有一些缺陷，可能暴雪的改动会造成我
+们插件的不兼容，例如删除一个元素或者属性。但对于简单的按钮来说不兼容很少会发生。
+
+---
+
+**Tip** 在创建自己的模板之前，应该先去了解一下暴雪的XML文件。所有文件名带有Template的XML文件当中的模板资源都可能被我们的插件
+所使用。
+
+---
+
+这个模板的名称为UIPanelButtonTemplate，它同样定义在Interface/FrameXML/UIPanelTemplate.xml当中。在创建自己的模板之前，
+先去这个文件里看一看有没有已经定义好的模板吧。下面的代码利用这个模板创建了一个按钮。这个按钮应该是我们Poker_TableBrowser的一个
+子框。所有的子框都应该放在UI框的`<Frames>`元素当中。所以将以下代码添加到`<Frame>`元素当中
+
+```xml
+
+<Frames>
+    <Button name="$parentTestButton" text="test :)" inherits="UIPanelButtonTemplate">
+        <Size>
+            <AbsDimension x="96" y="32"/>
+        </Size>
+        <Anchors>
+            <Anchor pointer="CENTER"/>
+        </Anchors>
+        <Scripts>
+            <OnLoad>
+                self:RegisterForClicks(
+                    "LeftButtonUp",
+                    "RightButtonUp"
+                    "MiddleButtonDown"
+                )
+            </OnLoad>
+            <OnClick>
+                print("Clicked with",button)
+            </OnClick>
+        </Scripts>
+    </Button>
+</Frames>
+
+```
+
+RegisterForClicks方法注册了一系列鼠标事件。鼠标事件有两部分组成，一个是鼠标的按键(左键，右键，中键等等)，另一个是触发OnClick
+事件的时机。这个时机可以是Down或者Up。后一次调用RegisterForClicks将覆盖前一次调用注册的时机。默认监听LeftButtonUp。
+
+重新加载这个XML文件将添加一个按钮在Poker_TableBrowser当中。点击这个按钮触发OnClick方法，按钮作为第二个参数传入函数，第一个
+参数永远是UI框本身。这个函数将在对话框输出一条信息。
+
+现在我们成功的创建了一些测试按钮。我们将继续创建一些有用的按钮。我们的UI框的外观应该是怎么样的？我们需要哪些按钮？我们需要什么来
+放置这些按钮？
+
+## 设计Table Browser
+
+在编写XML文件之前，你应该先画一些草图，只要应该明确我们最终想要的效果是什么样的。下图展示了我们牌桌列表的草图。
+
+![牌桌列表的草图](lua/images/TableBrowser.png)
+
+如你所见，牌桌列表列举出工会或者团队当中正在进行的游戏。玩家可以从列表当中选择并通过双击加入游戏，所以这个列表的当中显示的数据同样
+是一些按钮。在列表底部的按钮，也可以用于加入选中的游戏。Enter a Name按钮可以手动输入一个玩家昵称以加入他的游戏，这个按钮用于创建
+牌桌的玩家不在工会或者团队中时使用。Create Table按钮将弹出一个新的对话框让你创建一个新的牌桌。最后一个按钮就是关闭这个窗口。让我
+们开始创建这些按钮。
+
+### 基本的按钮
+
+如果你将之前测试的按钮添加到了UI框当中，那么请先删除它。关闭按钮同样也是UI框的子元素，所以我们将以下`<Frames>`元素添加到`<Frame>`
+元素当中。下面的代码展示了UI框当中的`<Frames>`元素，其包含了一个定位在父元素底部的按钮。
+
+```xml
+
+<Frames>
+    <Button name="$parentClose" text="POKER_BROWSER_CLOSE" inherits="UIPanelButtonTemplate">
+        <Size>
+            <AbsDimension x="64" y="24"/>
+        </Size>
+        <Anchors>
+            <Anchor pointer="BOTTOM">
+                <Offset>
+                    <AbsDimension x="0" y="15"/>
+                </Offset>
+            </Anchor>
+        </Anchors>
+        <Scripts>
+            <OnClick>
+                self:GetParent():Hide()
+            </OnClick>
+        </Scripts>
+    </Button>
+</Frames>
+
+```
+
+你还必须在localization.en.lua文件中添加如下一行：
+
+```lua
+
+POKER_BROWSER_CLOSE = "Close"
+
+```
+
+OnClick事件处理器调用self:GetParent()获取按钮的父UI，就是Poker_TableBrowser本身。然后通过它调用Hide()方法进行隐藏。
+
+我们将继续添加命令按钮，不过我们如何为这些按钮选择锚点？最好选择牌桌列表作为锚点，所以我们先创建这个列表。
+
+## 创建一个列表元素
+
+我们需要一个包含了可点击元素和标题的列表。标题同样要支持点击，用于对列表当中的元素进行排序。构建这些元素所使用的UI类型依旧是按钮。
+
+### 创建边框
+
 
 
 
